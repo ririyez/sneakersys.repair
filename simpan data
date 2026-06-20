@@ -1,0 +1,101 @@
+from flask import Flask, render_template, request, redirect, url_for
+import sqlite3
+
+app = Flask(__name__)
+
+DB_NAME = "reparasi.db"
+
+def init_db():
+    """Fungsi untuk membuat database dan tabel jika belum ada"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pesanan (
+            id TEXT PRIMARY KEY,
+            nama TEXT NOT NULL,
+            tipe TEXT NOT NULL,
+            kendala TEXT NOT NULL,
+            status TEXT NOT NULL
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def get_semua_pesanan():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row  # Agar data bisa diakses menggunakan nama kolom seperti hasil['nama']
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM pesanan ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    # Mengubah hasil query menjadi format dictionary seperti database simulasi sebelumnya
+    data = {}
+    for row in rows:
+        data[row['id']] = {
+            "nama": row['nama'],
+            "tipe": row['tipe'],
+            "kendala": row['kendala'],
+            "status": row['status']
+        }
+    return data
+
+# Jalankan inisialisasi database saat aplikasi pertama kali berjalan
+init_db()
+
+@app.route('/')
+def index():
+    search_id = request.args.get('search_id', '').strip().upper()
+    hasil_pencarian = None
+    pesan_error = None
+    
+    # Ambil data terbaru dari database SQLite
+    semua_data = get_semua_pesanan()
+
+    if search_id:
+        if search_id in semua_data:
+            hasil_pencarian = semua_data[search_id]
+            hasil_pencarian['id'] = search_id
+        else:
+            pesan_error = "Nomor Resi tidak ditemukan!"
+
+    return render_template('index.html', data=semua_data, hasil=hasil_pencarian, error=pesan_error, search_id=search_id)
+
+@app.route('/tambah', methods=['POST'])
+def tambah_reparasi():
+    nama = request.form.get('nama')
+    tipe = request.form.get('tipe')
+    kendala = request.form.get('kendala')
+    
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    # Menghitung jumlah baris untuk membuat ID unik baru (Contoh: REP-001, REP-002)
+    cursor.execute("SELECT COUNT(*) FROM pesanan")
+    total = cursor.fetchone()[0]
+    next_id = f"REP-00{total + 1}"
+    
+    # Menyimpan data baru ke dalam database SQLite
+    cursor.execute(
+        "INSERT INTO pesanan (id, nama, tipe, kendala, status) VALUES (?, ?, ?, ?, ?)",
+        (next_id, nama, tipe, kendala, "Antre")
+    )
+    conn.commit()
+    conn.close()
+    
+    return redirect(url_for('index'))
+
+@app.route('/update/<id_resi>/<status>')
+def update_status(id_resi, status):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    # Memperbarui status berdasarkan ID Resi di database
+    cursor.execute("UPDATE pesanan SET status = ? WHERE id = ?", (status, id_resi))
+    conn.commit()
+    conn.close()
+    
+    return redirect(url_for('index'))
+
+if __name__ == '__main__':
+    app.run(debug=True)
